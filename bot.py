@@ -17,9 +17,9 @@ def home():
     <p>New Pokémon card drops and restocks from Amazon.com are being watched 24/7 and sent straight to your Discord!</p>
     """
 
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+intents = discord.Intents.default()  # NO privileged intent needed anymore
+bot = discord.Client(intents=intents)  # Using Client + tree for slash commands
+tree = discord.app_commands.CommandTree(bot)
 
 notification_channel_id = None
 SEEN_FILE = 'seen_products.json'
@@ -115,42 +115,36 @@ def get_product_status(url):
 @bot.event
 async def on_ready():
     print(f'{bot.user} is ready and hunting Pokémon cards on Amazon!')
+    await tree.sync()  # Registers the slash commands
     check_new_drops.start()
     check_monitored_restock.start()
 
 @tasks.loop(minutes=45)
 async def check_new_drops():
-    if not notification_channel_id:
-        return
+    if not notification_channel_id: return
     channel = bot.get_channel(notification_channel_id)
-    if not channel:
-        return
+    if not channel: return
     new_products = scrape_search()
     seen = load_seen()
     posted = 0
     for prod in new_products:
-        if prod['asin'] in seen:
-            continue
+        if prod['asin'] in seen: continue
         embed = discord.Embed(title="🆕 NEW POKÉMON DROP ON AMAZON!", description=prod['title'], url=prod['link'], color=0x00ff00)
         embed.add_field(name="Price", value=prod['price'], inline=True)
-        if prod['img']:
-            embed.set_image(url=prod['img'])
+        if prod['img']: embed.set_image(url=prod['img'])
         embed.set_footer(text="PokeTimez-Amazon-Restock Bot")
         await channel.send(embed=embed)
         seen.add(prod['asin'])
         posted += 1
-        if posted >= 3:
-            break
+        if posted >= 3: break
     if posted > 0:
         save_seen(seen)
 
 @tasks.loop(minutes=15)
 async def check_monitored_restock():
-    if not notification_channel_id:
-        return
+    if not notification_channel_id: return
     channel = bot.get_channel(notification_channel_id)
-    if not channel:
-        return
+    if not channel: return
     monitored = load_monitored()
     updated = False
     for asin, data in list(monitored.items()):
@@ -171,42 +165,42 @@ async def check_monitored_restock():
     if updated:
         save_monitored(monitored)
 
-@bot.command()
-async def setchannel(ctx):
+@tree.command(name="setchannel", description="Tell the bot to post all Pokémon alerts in this channel")
+async def setchannel(interaction: discord.Interaction):
     global notification_channel_id
-    notification_channel_id = ctx.channel.id
-    await ctx.send(f"✅ All Pokémon card alerts will now be posted right here in {ctx.channel.mention}!")
+    notification_channel_id = interaction.channel.id
+    await interaction.response.send_message(f"✅ All Pokémon card alerts will now be posted right here in {interaction.channel.mention}!")
 
-@bot.command()
-async def monitor(ctx, url: str):
+@tree.command(name="monitor", description="Watch a specific Amazon Pokémon product for restocks")
+async def monitor(interaction: discord.Interaction, url: str):
     if not notification_channel_id:
-        await ctx.send("Please run **!setchannel** first in the channel you want alerts!")
+        await interaction.response.send_message("Please run **/setchannel** first in the channel you want alerts!")
         return
     asin_match = re.search(r'/dp/([A-Z0-9]{10})', url)
     if not asin_match:
-        await ctx.send("❌ Oops! Use a full Amazon link like https://amazon.com/dp/B0ABC12345")
+        await interaction.response.send_message("❌ Oops! Use a full Amazon link like https://amazon.com/dp/B0ABC12345")
         return
     asin = asin_match.group(1)
     status = get_product_status(url)
     if status['title'] == "Error":
-        await ctx.send("❌ Couldn't reach that product. Double-check the URL!")
+        await interaction.response.send_message("❌ Couldn't reach that product. Double-check the URL!")
         return
     monitored = load_monitored()
     monitored[asin] = {'url': url, 'last_available': status['availability'] == "In Stock", 'title': status['title'], 'price': status['price']}
     save_monitored(monitored)
-    await ctx.send(f"✅ Now watching **{status['title']}** for restocks! Current status: {status['availability']}")
+    await interaction.response.send_message(f"✅ Now watching **{status['title']}** for restocks! Current status: {status['availability']}")
 
-@bot.command()
-async def listmonitored(ctx):
+@tree.command(name="listmonitored", description="See all Pokémon items being watched for restocks")
+async def listmonitored(interaction: discord.Interaction):
     monitored = load_monitored()
     if not monitored:
-        await ctx.send("No items being watched yet. Use **!monitor <amazon-url>**")
+        await interaction.response.send_message("No items being watched yet. Use **/monitor <amazon-url>**")
         return
     msg = "**📋 Currently monitoring these Pokémon items:**\n"
     for data in monitored.values():
         status = "✅ In Stock" if data.get('last_available') else "❌ Out of Stock"
         msg += f"• [{data['title']}]({data['url']}) — {status}\n"
-    await ctx.send(msg)
+    await interaction.response.send_message(msg)
 
 def run_discord_bot():
     token = os.environ.get('DISCORD_TOKEN')
