@@ -132,4 +132,123 @@ def get_product_status(url):
         return {'title': title, 'availability': avail, 'price': price}
     except Exception as e:
         print(f"Product parsing error: {e}")
-        return {'title': "Error",​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​
+        return {'title': "Error", 'availability': "Error", 'price': "N/A"}
+
+# ====================== TASKS (crash-proof) ======================
+@bot.event
+async def on_ready():
+    print(f'{bot.user} is ready and hunting Pokémon cards on Amazon!')
+    check_new_drops.start()
+    check_monitored_restock.start()
+
+@tasks.loop(minutes=45)
+async def check_new_drops():
+    try:
+        if not notification_channel_id:
+            return
+        channel = bot.get_channel(notification_channel_id)
+        if not channel:
+            return
+        new_products = scrape_search()
+        seen = load_seen()
+        posted = 0
+        for prod in new_products:
+            if prod['asin'] in seen:
+                continue
+            embed = discord.Embed(title="🆕 NEW POKÉMON DROP ON AMAZON!", description=prod['title'], url=prod['link'], color=0x00ff00)
+            embed.add_field(name="Price", value=prod['price'], inline=True)
+            if prod['img']:
+                embed.set_image(url=prod['img'])
+            embed.set_footer(text="PokeTimez-Amazon-Restock Bot")
+            await channel.send(embed=embed)
+            seen.add(prod['asin'])
+            posted += 1
+            if posted >= 3:
+                break
+        if posted > 0:
+            save_seen(seen)
+            print(f"Posted {posted} new drops")
+    except Exception as e:
+        print(f"check_new_drops error: {e}")
+
+@tasks.loop(minutes=15)
+async def check_monitored_restock():
+    try:
+        if not notification_channel_id:
+            return
+        channel = bot.get_channel(notification_channel_id)
+        if not channel:
+            return
+        monitored = load_monitored()
+        updated = False
+        for asin, data in list(monitored.items()):
+            status = get_product_status(data['url'])
+            current_available = status['availability'] == "In Stock"
+            if current_available and not data.get('last_available', False):
+                embed = discord.Embed(title="🔥 RESTOCK ALERT! 🔥", description=f"{status['title']}\n**NOW IN STOCK!**", url=data['url'], color=0xff0000)
+                embed.add_field(name="Price", value=status['price'], inline=True)
+                embed.set_footer(text="PokeTimez-Amazon-Restock Bot • Grab it fast!")
+                await channel.send(embed=embed)
+                monitored[asin]['last_available'] = True
+                updated = True
+            elif not current_available and data.get('last_available', True):
+                monitored[asin]['last_available'] = False
+                updated = True
+            monitored[asin]['title'] = status['title']
+            monitored[asin]['price'] = status['price']
+        if updated:
+            save_monitored(monitored)
+    except Exception as e:
+        print(f"check_monitored_restock error: {e}")
+
+# ====================== COMMANDS ======================
+@bot.command()
+async def setchannel(ctx):
+    global notification_channel_id
+    notification_channel_id = ctx.channel.id
+    await ctx.send(f"✅ All Pokémon card alerts will now be posted right here in {ctx.channel.mention}!")
+
+@bot.command()
+async def monitor(ctx, url: str):
+    if not notification_channel_id:
+        await ctx.send("Please run **!setchannel** first in the channel you want alerts!")
+        return
+    asin_match = re.search(r'/dp/([A-Z0-9]{10})', url)
+    if not asin_match:
+        await ctx.send("❌ Oops! Use a full Amazon link like https://amazon.com/dp/B0ABC12345")
+        return
+    asin = asin_match.group(1)
+    status = get_product_status(url)
+    if status['title'] == "Error":
+        await ctx.send("❌ Couldn't reach that product. Double-check the URL!")
+        return
+    monitored = load_monitored()
+    monitored[asin] = {'url': url, 'last_available': status['availability'] == "In Stock", 'title': status['title'], 'price': status['price']}
+    save_monitored(monitored)
+    await ctx.send(f"✅ Now watching **{status['title']}** for restocks! Current status: {status['availability']}")
+
+@bot.command()
+async def listmonitored(ctx):
+    monitored = load_monitored()
+    if not monitored:
+        await ctx.send("No items being watched yet. Use **!monitor <amazon-url>**")
+        return
+    msg = "**📋 Currently monitoring these Pokémon items:**\n"
+    for data in monitored.values():
+        status = "✅ In Stock" if data.get('last_available') else "❌ Out of Stock"
+        msg += f"• [{data['title']}]({data['url']}) — {status}\n"
+    await ctx.send(msg)
+
+def run_discord_bot():
+    token = os.environ.get('DISCORD_TOKEN')
+    if not token:
+        print("❌ DISCORD_TOKEN is missing! Add it in Render settings.")
+        return
+    bot.run(token)
+
+if __name__ == "__main__":
+    bot_thread = threading.Thread(target=run_discord_bot)
+    bot_thread.daemon = True
+    bot_thread.start()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
