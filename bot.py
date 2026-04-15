@@ -61,11 +61,11 @@ def save_monitored(monitored):
     except:
         pass
 
-# ====================== SCRAPING (Cloudflare-proof with Scrape.do) ======================
+# ====================== SCRAPING ======================
 def _scrape_with_api(url):
     token = os.environ.get('SCRAPE_DO_TOKEN')
     if not token:
-        print("❌ SCRAPE_DO_TOKEN missing! Add it in Render Environment settings.")
+        print("❌ SCRAPE_DO_TOKEN missing!")
         return None
     try:
         time.sleep(random.uniform(1, 2.5))
@@ -89,8 +89,7 @@ def scrape_search():
         items = soup.select('[data-asin]')[:15] or soup.select('.s-result-item')
         for item in items:
             asin = item.get('data-asin')
-            if not asin:
-                continue
+            if not asin: continue
             title_tag = item.select_one('h2 a span') or item.select_one('h2 a') or item.select_one('.a-size-medium')
             title = title_tag.get_text(strip=True) if title_tag else "Unknown Pokémon Card"
             link_tag = item.select_one('h2 a') or item.select_one('a[href*="/dp/"]')
@@ -134,7 +133,7 @@ def get_product_status(url):
         print(f"Product parsing error: {e}")
         return {'title': "Error", 'availability': "Error", 'price': "N/A"}
 
-# ====================== TASKS (crash-proof) ======================
+# ====================== TASKS ======================
 @bot.event
 async def on_ready():
     print(f'✅ {bot.user} is ready and hunting Pokémon cards on Amazon!')
@@ -144,27 +143,22 @@ async def on_ready():
 @tasks.loop(minutes=45)
 async def check_new_drops():
     try:
-        if not notification_channel_id:
-            return
+        if not notification_channel_id: return
         channel = bot.get_channel(notification_channel_id)
-        if not channel:
-            return
+        if not channel: return
         new_products = scrape_search()
         seen = load_seen()
         posted = 0
         for prod in new_products:
-            if prod['asin'] in seen:
-                continue
+            if prod['asin'] in seen: continue
             embed = discord.Embed(title="🆕 NEW POKÉMON DROP ON AMAZON!", description=prod['title'], url=prod['link'], color=0x00ff00)
             embed.add_field(name="Price", value=prod['price'], inline=True)
-            if prod['img']:
-                embed.set_image(url=prod['img'])
+            if prod['img']: embed.set_image(url=prod['img'])
             embed.set_footer(text="PokeTimez-Amazon-Restock Bot")
             await channel.send(embed=embed)
             seen.add(prod['asin'])
             posted += 1
-            if posted >= 3:
-                break
+            if posted >= 3: break
         if posted > 0:
             save_seen(seen)
             print(f"Posted {posted} new drops")
@@ -174,11 +168,9 @@ async def check_new_drops():
 @tasks.loop(minutes=15)
 async def check_monitored_restock():
     try:
-        if not notification_channel_id:
-            return
+        if not notification_channel_id: return
         channel = bot.get_channel(notification_channel_id)
-        if not channel:
-            return
+        if not channel: return
         monitored = load_monitored()
         updated = False
         for asin, data in list(monitored.items()):
@@ -211,21 +203,21 @@ async def setchannel(ctx):
 @bot.command()
 async def monitor(ctx, url: str):
     if not notification_channel_id:
-        await ctx.send("Please run **!setchannel** first in the channel you want alerts!")
+        await ctx.send("Please run **!setchannel** first!")
         return
     asin_match = re.search(r'/dp/([A-Z0-9]{10})', url)
     if not asin_match:
-        await ctx.send("❌ Oops! Use a full Amazon link like https://amazon.com/dp/B0ABC12345")
+        await ctx.send("❌ Use a full Amazon link like https://amazon.com/dp/B0ABC12345")
         return
     asin = asin_match.group(1)
     status = get_product_status(url)
     if status['title'] == "Error":
-        await ctx.send("❌ Couldn't reach that product. Double-check the URL!")
+        await ctx.send("❌ Couldn't reach that product.")
         return
     monitored = load_monitored()
     monitored[asin] = {'url': url, 'last_available': status['availability'] == "In Stock", 'title': status['title'], 'price': status['price']}
     save_monitored(monitored)
-    await ctx.send(f"✅ Now watching **{status['title']}** for restocks! Current status: {status['availability']}")
+    await ctx.send(f"✅ Now watching **{status['title']}** — Current: {status['availability']}")
 
 @bot.command()
 async def listmonitored(ctx):
@@ -233,40 +225,38 @@ async def listmonitored(ctx):
     if not monitored:
         await ctx.send("No items being watched yet. Use **!monitor <amazon-url>**")
         return
-    msg = "**📋 Currently monitoring these Pokémon items:**\n"
+    msg = "**📋 Currently monitoring:**\n"
     for data in monitored.values():
         status = "✅ In Stock" if data.get('last_available') else "❌ Out of Stock"
         msg += f"• [{data['title']}]({data['url']}) — {status}\n"
     await ctx.send(msg)
 
+def run_flask():
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
+
 def run_discord_bot():
     token = os.environ.get('DISCORD_TOKEN')
     if not token:
-        print("❌ DISCORD_TOKEN is missing! Add it in Render Environment settings.")
+        print("❌ DISCORD_TOKEN missing!")
         return
     while True:
         try:
-            print("🔄 Attempting to log in to Discord...")
-            bot.run(token)
-            break  # if successful, exit loop
-        except discord.errors.HTTPException as e:
-            if "429" in str(e) or "1015" in str(e) or "rate limited" in str(e).lower():
-                wait_time = 300  # start with 5 minutes
-                print(f"⚠️ Rate limit hit (429/1015). Waiting {wait_time//60} minutes before retry...")
-                time.sleep(wait_time)
-                # increase wait time slightly each retry (up to 30 min)
-                wait_time = min(wait_time * 1.5, 1800)
-            else:
-                print(f"❌ Unexpected Discord error: {e}")
-                time.sleep(60)
+            print("🔄 Attempting Discord login...")
+            bot.run(token, reconnect=True)
+            break
         except Exception as e:
-            print(f"❌ Unexpected error in Discord thread: {e}")
-            time.sleep(60)
+            error_str = str(e).lower()
+            if "429" in error_str or "1015" in error_str or "rate limited" in error_str:
+                wait = 300
+                print(f"⚠️ Rate limit hit — waiting {wait//60} minutes...")
+                time.sleep(wait)
+            else:
+                print(f"❌ Login error: {e}")
+                time.sleep(60)
 
 if __name__ == "__main__":
-    print("🚀 Starting PokeTimez Amazon Restock Bot...")
-    bot_thread = threading.Thread(target=run_discord_bot)
-    bot_thread.daemon = True
-    bot_thread.start()
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    print("🚀 Starting PokeTimez Amazon Restock Bot (stable mode)...")
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    run_discord_bot()
