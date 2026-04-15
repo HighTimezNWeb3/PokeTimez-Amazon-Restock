@@ -137,7 +137,7 @@ def get_product_status(url):
 # ====================== TASKS (crash-proof) ======================
 @bot.event
 async def on_ready():
-    print(f'{bot.user} is ready and hunting Pokémon cards on Amazon!')
+    print(f'✅ {bot.user} is ready and hunting Pokémon cards on Amazon!')
     check_new_drops.start()
     check_monitored_restock.start()
 
@@ -242,11 +242,29 @@ async def listmonitored(ctx):
 def run_discord_bot():
     token = os.environ.get('DISCORD_TOKEN')
     if not token:
-        print("❌ DISCORD_TOKEN is missing! Add it in Render settings.")
+        print("❌ DISCORD_TOKEN is missing! Add it in Render Environment settings.")
         return
-    bot.run(token)
+    while True:
+        try:
+            print("🔄 Attempting to log in to Discord...")
+            bot.run(token)
+            break  # if successful, exit loop
+        except discord.errors.HTTPException as e:
+            if "429" in str(e) or "1015" in str(e) or "rate limited" in str(e).lower():
+                wait_time = 300  # start with 5 minutes
+                print(f"⚠️ Rate limit hit (429/1015). Waiting {wait_time//60} minutes before retry...")
+                time.sleep(wait_time)
+                # increase wait time slightly each retry (up to 30 min)
+                wait_time = min(wait_time * 1.5, 1800)
+            else:
+                print(f"❌ Unexpected Discord error: {e}")
+                time.sleep(60)
+        except Exception as e:
+            print(f"❌ Unexpected error in Discord thread: {e}")
+            time.sleep(60)
 
 if __name__ == "__main__":
+    print("🚀 Starting PokeTimez Amazon Restock Bot...")
     bot_thread = threading.Thread(target=run_discord_bot)
     bot_thread.daemon = True
     bot_thread.start()
