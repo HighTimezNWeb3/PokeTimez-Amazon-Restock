@@ -1,34 +1,4 @@
-  <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PokeTimez-Amazon-Restock</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: linear-gradient(to bottom, #ffcc00, #ff6600); color: #222; text-align: center; padding: 20px; }
-        h1 { font-size: 3em; color: #fff; text-shadow: 3px 3px #222; }
-        .container { max-width: 800px; margin: 0 auto; background: white; border-radius: 20px; padding: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
-        pre { background: #111; color: #0f0; padding: 15px; border-radius: 10px; text-align: left; overflow-x: auto; font-size: 14px; }
-        button { background: #ff6600; color: white; border: none; padding: 15px 30px; font-size: 1.5em; border-radius: 50px; cursor: pointer; margin: 10px; }
-        button:hover { background: #ffcc00; color: #222; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🎮 PokeTimez-Amazon-Restock 🎮</h1>
-        <p><strong>Your personal Pokémon card drop & restock watcher for Amazon.com!</strong></p>
-        <p>It automatically finds NEW drops/releases AND restocks of any Pokémon cards and posts them straight to your Discord channel with pictures, prices, and direct links.</p>
-        
-        <h2>Full Code (just copy-paste these files into GitHub)</h2>
-        
-        <h3>1. requirements.txt</h3>
-        <pre>discord.py==2.4.0
-flask==3.0.3
-requests==2.32.3
-beautifulsoup4==4.12.3</pre>
-
-        <h3>2. bot.py (this is the whole brain of the bot)</h3>
-        <pre><code>import os
+import os
 import discord
 from discord.ext import commands, tasks
 import requests
@@ -42,7 +12,10 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "&lt;h1&gt;🐾 PokeTimez-Amazon-Restock Bot is ALIVE and watching Amazon for Pokémon cards! 🐾&lt;br&gt;New drops and restocks go straight to your Discord!&lt;/h1&gt;"
+    return """
+    <h1>🐾 PokeTimez-Amazon-Restock Bot is ALIVE! 🐾</h1>
+    <p>New Pokémon card drops and restocks from Amazon.com are being watched 24/7 and sent straight to your Discord!</p>
+    """
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -90,7 +63,7 @@ HEADERS = {
 }
 
 def scrape_search():
-    url = "https://www.amazon.com/s?k=pokemon+cards&amp;i=toys-and-games"
+    url = "https://www.amazon.com/s?k=pokemon+cards&i=toys-and-games"
     try:
         response = requests.get(url, headers=HEADERS, timeout=10)
         response.raise_for_status()
@@ -98,7 +71,7 @@ def scrape_search():
         products = []
         for item in soup.select('[data-asin]')[:15]:
             asin = item.get('data-asin')
-            if not asin or asin == '':
+            if not asin:
                 continue
             title_tag = item.select_one('h2 a span')
             title = title_tag.get_text(strip=True) if title_tag else "Unknown Pokémon Card"
@@ -147,30 +120,37 @@ async def on_ready():
 
 @tasks.loop(minutes=45)
 async def check_new_drops():
-    if not notification_channel_id: return
+    if not notification_channel_id:
+        return
     channel = bot.get_channel(notification_channel_id)
-    if not channel: return
+    if not channel:
+        return
     new_products = scrape_search()
     seen = load_seen()
     posted = 0
     for prod in new_products:
-        if prod['asin'] in seen: continue
+        if prod['asin'] in seen:
+            continue
         embed = discord.Embed(title="🆕 NEW POKÉMON DROP ON AMAZON!", description=prod['title'], url=prod['link'], color=0x00ff00)
         embed.add_field(name="Price", value=prod['price'], inline=True)
-        if prod['img']: embed.set_image(url=prod['img'])
+        if prod['img']:
+            embed.set_image(url=prod['img'])
         embed.set_footer(text="PokeTimez-Amazon-Restock Bot")
         await channel.send(embed=embed)
         seen.add(prod['asin'])
         posted += 1
-        if posted >= 3: break
+        if posted >= 3:
+            break
     if posted > 0:
         save_seen(seen)
 
 @tasks.loop(minutes=15)
 async def check_monitored_restock():
-    if not notification_channel_id: return
+    if not notification_channel_id:
+        return
     channel = bot.get_channel(notification_channel_id)
-    if not channel: return
+    if not channel:
+        return
     monitored = load_monitored()
     updated = False
     for asin, data in list(monitored.items()):
@@ -220,7 +200,7 @@ async def monitor(ctx, url: str):
 async def listmonitored(ctx):
     monitored = load_monitored()
     if not monitored:
-        await ctx.send("No items being watched yet. Use **!monitor &lt;amazon-url&gt;**")
+        await ctx.send("No items being watched yet. Use **!monitor <amazon-url>**")
         return
     msg = "**📋 Currently monitoring these Pokémon items:**\n"
     for data in monitored.values():
@@ -240,20 +220,4 @@ if __name__ == "__main__":
     bot_thread.daemon = True
     bot_thread.start()
     port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)</code></pre>
-
-        <h3>3. (Optional but nice) README.md</h3>
-        <pre># PokeTimez-Amazon-Restock
-Your Pokémon card drop &amp; restock bot for Amazon.com!
-Commands:
-!setchannel → tells the bot where to post alerts
-!monitor https://amazon.com/dp/XXXX → watch a specific card for restocks
-!listmonitored → see everything it's watching
-Made with love for the PokeTimez community! 🐾</pre>
-
-        <p><strong>Important note:</strong> Amazon sometimes changes their website, so the bot might need tiny updates later. It also respects Amazon's rules by not hammering the site too hard.</p>
-        
-        <button onclick="window.location.href='https://github.com/new'">🚀 Click here to create your GitHub repo now!</button>
-    </div>
-</body>
-</html>
+    app.run(host='0.0.0.0', port=port)
