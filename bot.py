@@ -10,6 +10,11 @@ import time
 import random
 import urllib.parse
 from flask import Flask
+import logging
+
+# === STOP THE SPAM LOGS ===
+logging.getLogger('discord').setLevel(logging.WARNING)
+logging.getLogger('discord.http').setLevel(logging.WARNING)
 
 app = Flask(__name__)
 
@@ -243,7 +248,7 @@ def run_discord_bot():
     while True:
         try:
             print("🔄 Attempting Discord login...")
-            bot.run(token, reconnect=True)
+            bot.run(token, reconnect=True, log_handler=None)   # ← fixed for clean logs
             break
         except Exception as e:
             error_str = str(e).lower()
