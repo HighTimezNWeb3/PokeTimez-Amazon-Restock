@@ -12,7 +12,7 @@ import urllib.parse
 from flask import Flask
 import logging
 
-# === STOP THE SPAM LOGS ===
+# === CLEAN LOGS + EXTRA SAFETY ===
 logging.getLogger('discord').setLevel(logging.WARNING)
 logging.getLogger('discord.http').setLevel(logging.WARNING)
 
@@ -245,16 +245,17 @@ def run_discord_bot():
     if not token:
         print("❌ DISCORD_TOKEN missing!")
         return
+    print("🔄 Bot token loaded — entering login loop...")
     while True:
         try:
             print("🔄 Attempting Discord login...")
-            bot.run(token, reconnect=True, log_handler=None)   # ← fixed for clean logs
+            bot.run(token, reconnect=True, log_handler=None)
             break
         except Exception as e:
             error_str = str(e).lower()
             if "429" in error_str or "1015" in error_str or "rate limited" in error_str:
-                wait = 300
-                print(f"⚠️ Rate limit hit — waiting {wait//60} minutes...")
+                wait = 600  # 10 minutes instead of 5
+                print(f"⚠️ Rate limit hit — waiting {wait//60} minutes before next try...")
                 time.sleep(wait)
             else:
                 print(f"❌ Login error: {e}")
