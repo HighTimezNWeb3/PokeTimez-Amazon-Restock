@@ -61,11 +61,11 @@ def save_monitored(monitored):
     except:
         pass
 
-# ====================== SCRAPING ======================
+# ====================== SCRAPING (extra safe) ======================
 def _scrape_with_api(url):
     token = os.environ.get('SCRAPE_DO_TOKEN')
     if not token:
-        print("❌ SCRAPE_DO_TOKEN missing! Add it in Render Environment settings.")
+        print("❌ SCRAPE_DO_TOKEN is MISSING in Render Environment!")
         return None
     try:
         time.sleep(random.uniform(1, 2.5))
@@ -75,15 +75,15 @@ def _scrape_with_api(url):
         response.raise_for_status()
         return response.text
     except Exception as e:
-        print(f"Scrape.do API error: {e}")
+        print(f"Scrape.do API error for {url}: {e}")
         return None
 
 def scrape_search():
-    url = "https://www.amazon.com/s?k=pokemon+cards&i=toys-and-games"
-    html = _scrape_with_api(url)
-    if not html:
-        return []
     try:
+        url = "https://www.amazon.com/s?k=pokemon+cards&i=toys-and-games"
+        html = _scrape_with_api(url)
+        if not html:
+            return []
         soup = BeautifulSoup(html, 'html.parser')
         products = []
         items = soup.select('[data-asin]')[:15] or soup.select('.s-result-item')
@@ -101,14 +101,14 @@ def scrape_search():
             products.append({'asin': asin, 'title': title, 'link': link, 'price': price, 'img': img})
         return products
     except Exception as e:
-        print(f"Search parsing error: {e}")
+        print(f"scrape_search error: {e}")
         return []
 
 def get_product_status(url):
-    html = _scrape_with_api(url)
-    if not html:
-        return {'title': "Error", 'availability': "Error", 'price': "N/A"}
     try:
+        html = _scrape_with_api(url)
+        if not html:
+            return {'title': "Error", 'availability': "Error", 'price': "N/A"}
         soup = BeautifulSoup(html, 'html.parser')
         title_tag = soup.find('span', id='productTitle') or soup.find('h1', id='title')
         title = title_tag.get_text(strip=True) if title_tag else "Unknown Product"
@@ -130,10 +130,10 @@ def get_product_status(url):
         price = price_tag.get_text(strip=True) if price_tag else "N/A"
         return {'title': title, 'availability': avail, 'price': price}
     except Exception as e:
-        print(f"Product parsing error: {e}")
+        print(f"get_product_status error for {url}: {e}")
         return {'title': "Error", 'availability': "Error", 'price': "N/A"}
 
-# ====================== TASKS ======================
+# ====================== TASKS (fully protected) ======================
 @bot.event
 async def on_ready():
     print(f'✅ {bot.user} is ready and hunting Pokémon cards on Amazon!')
@@ -193,7 +193,7 @@ async def check_monitored_restock():
     except Exception as e:
         print(f"check_monitored_restock error: {e}")
 
-# ====================== COMMANDS (now with debug) ======================
+# ====================== COMMANDS ======================
 @bot.command()
 async def setchannel(ctx):
     global notification_channel_id
@@ -202,7 +202,6 @@ async def setchannel(ctx):
 
 @bot.command()
 async def monitor(ctx, url: str):
-    print(f"📥 !monitor command received with URL: {url}")
     try:
         if not notification_channel_id:
             await ctx.send("Please run **!setchannel** first!")
@@ -214,16 +213,15 @@ async def monitor(ctx, url: str):
         asin = asin_match.group(1)
         status = get_product_status(url)
         if status['title'] == "Error":
-            await ctx.send("❌ Couldn't reach that product. Double-check the URL or make sure SCRAPE_DO_TOKEN is set in Render.")
+            await ctx.send("❌ Couldn't reach that product. Check the URL or make sure SCRAPE_DO_TOKEN is set in Render.")
             return
         monitored = load_monitored()
         monitored[asin] = {'url': url, 'last_available': status['availability'] == "In Stock", 'title': status['title'], 'price': status['price']}
         save_monitored(monitored)
         await ctx.send(f"✅ Now watching **{status['title']}** for restocks! Current status: {status['availability']}")
-        print(f"✅ Successfully added monitoring for {asin}")
     except Exception as e:
-        print(f"❌ Error in !monitor command: {e}")
-        await ctx.send("❌ Something went wrong with !monitor. Check Render logs for details.")
+        print(f"❌ !monitor error: {e}")
+        await ctx.send("❌ Error in !monitor. Check Render logs.")
 
 @bot.command()
 async def listmonitored(ctx):
@@ -238,7 +236,7 @@ async def listmonitored(ctx):
             msg += f"• [{data['title']}]({data['url']}) — {status}\n"
         await ctx.send(msg)
     except Exception as e:
-        print(f"❌ Error in !listmonitored: {e}")
+        print(f"❌ !listmonitored error: {e}")
         await ctx.send("❌ Error listing monitored items.")
 
 @bot.command()
