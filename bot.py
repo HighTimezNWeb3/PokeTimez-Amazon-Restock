@@ -10,11 +10,6 @@ import time
 import random
 import urllib.parse
 from flask import Flask
-import logging
-
-# === CLEAN LOGS + EXTRA SAFETY ===
-logging.getLogger('discord').setLevel(logging.WARNING)
-logging.getLogger('discord.http').setLevel(logging.WARNING)
 
 app = Flask(__name__)
 
@@ -70,7 +65,7 @@ def save_monitored(monitored):
 def _scrape_with_api(url):
     token = os.environ.get('SCRAPE_DO_TOKEN')
     if not token:
-        print("❌ SCRAPE_DO_TOKEN missing!")
+        print("❌ SCRAPE_DO_TOKEN missing! Add it in Render Environment settings.")
         return None
     try:
         time.sleep(random.uniform(1, 2.5))
@@ -198,7 +193,7 @@ async def check_monitored_restock():
     except Exception as e:
         print(f"check_monitored_restock error: {e}")
 
-# ====================== COMMANDS ======================
+# ====================== COMMANDS (now with debug) ======================
 @bot.command()
 async def setchannel(ctx):
     global notification_channel_id
@@ -207,34 +202,48 @@ async def setchannel(ctx):
 
 @bot.command()
 async def monitor(ctx, url: str):
-    if not notification_channel_id:
-        await ctx.send("Please run **!setchannel** first!")
-        return
-    asin_match = re.search(r'/dp/([A-Z0-9]{10})', url)
-    if not asin_match:
-        await ctx.send("❌ Use a full Amazon link like https://amazon.com/dp/B0ABC12345")
-        return
-    asin = asin_match.group(1)
-    status = get_product_status(url)
-    if status['title'] == "Error":
-        await ctx.send("❌ Couldn't reach that product.")
-        return
-    monitored = load_monitored()
-    monitored[asin] = {'url': url, 'last_available': status['availability'] == "In Stock", 'title': status['title'], 'price': status['price']}
-    save_monitored(monitored)
-    await ctx.send(f"✅ Now watching **{status['title']}** — Current: {status['availability']}")
+    print(f"📥 !monitor command received with URL: {url}")
+    try:
+        if not notification_channel_id:
+            await ctx.send("Please run **!setchannel** first!")
+            return
+        asin_match = re.search(r'/dp/([A-Z0-9]{10})', url)
+        if not asin_match:
+            await ctx.send("❌ Use a full Amazon link like https://amazon.com/dp/B0ABC12345")
+            return
+        asin = asin_match.group(1)
+        status = get_product_status(url)
+        if status['title'] == "Error":
+            await ctx.send("❌ Couldn't reach that product. Double-check the URL or make sure SCRAPE_DO_TOKEN is set in Render.")
+            return
+        monitored = load_monitored()
+        monitored[asin] = {'url': url, 'last_available': status['availability'] == "In Stock", 'title': status['title'], 'price': status['price']}
+        save_monitored(monitored)
+        await ctx.send(f"✅ Now watching **{status['title']}** for restocks! Current status: {status['availability']}")
+        print(f"✅ Successfully added monitoring for {asin}")
+    except Exception as e:
+        print(f"❌ Error in !monitor command: {e}")
+        await ctx.send("❌ Something went wrong with !monitor. Check Render logs for details.")
 
 @bot.command()
 async def listmonitored(ctx):
-    monitored = load_monitored()
-    if not monitored:
-        await ctx.send("No items being watched yet. Use **!monitor <amazon-url>**")
-        return
-    msg = "**📋 Currently monitoring:**\n"
-    for data in monitored.values():
-        status = "✅ In Stock" if data.get('last_available') else "❌ Out of Stock"
-        msg += f"• [{data['title']}]({data['url']}) — {status}\n"
-    await ctx.send(msg)
+    try:
+        monitored = load_monitored()
+        if not monitored:
+            await ctx.send("No items being watched yet. Use **!monitor <amazon-url>**")
+            return
+        msg = "**📋 Currently monitoring these Pokémon items:**\n"
+        for data in monitored.values():
+            status = "✅ In Stock" if data.get('last_available') else "❌ Out of Stock"
+            msg += f"• [{data['title']}]({data['url']}) — {status}\n"
+        await ctx.send(msg)
+    except Exception as e:
+        print(f"❌ Error in !listmonitored: {e}")
+        await ctx.send("❌ Error listing monitored items.")
+
+@bot.command()
+async def ping(ctx):
+    await ctx.send("🏓 Pong! Bot is alive and responding.")
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
@@ -245,17 +254,16 @@ def run_discord_bot():
     if not token:
         print("❌ DISCORD_TOKEN missing!")
         return
-    print("🔄 Bot token loaded — entering login loop...")
     while True:
         try:
             print("🔄 Attempting Discord login...")
-            bot.run(token, reconnect=True, log_handler=None)
+            bot.run(token, reconnect=True)
             break
         except Exception as e:
             error_str = str(e).lower()
             if "429" in error_str or "1015" in error_str or "rate limited" in error_str:
-                wait = 600  # 10 minutes instead of 5
-                print(f"⚠️ Rate limit hit — waiting {wait//60} minutes before next try...")
+                wait = 300
+                print(f"⚠️ Rate limit hit — waiting {wait//60} minutes...")
                 time.sleep(wait)
             else:
                 print(f"❌ Login error: {e}")
