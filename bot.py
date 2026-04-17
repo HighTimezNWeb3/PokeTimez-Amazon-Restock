@@ -61,29 +61,33 @@ def save_monitored(monitored):
     except:
         pass
 
-# ====================== SCRAPING (extra safe) ======================
+# ====================== SCRAPING (3 automatic retries) ======================
 def _scrape_with_api(url):
     token = os.environ.get('SCRAPE_DO_TOKEN')
     if not token:
         print("❌ SCRAPE_DO_TOKEN is MISSING in Render Environment!")
         return None
-    try:
-        time.sleep(random.uniform(1, 2.5))
-        encoded_url = urllib.parse.quote_plus(url)
-        api_url = f"https://api.scrape.do/?token={token}&url={encoded_url}&super=true"
-        response = requests.get(api_url, timeout=20)
-        response.raise_for_status()
-        return response.text
-    except Exception as e:
-        print(f"Scrape.do API error for {url}: {e}")
-        return None
+    for attempt in range(3):
+        try:
+            time.sleep(random.uniform(1.5, 3.5))
+            encoded_url = urllib.parse.quote_plus(url)
+            api_url = f"https://api.scrape.do/?token={token}&url={encoded_url}&super=true"
+            response = requests.get(api_url, timeout=25)
+            response.raise_for_status()
+            return response.text
+        except Exception as e:
+            print(f"Scrape.do attempt {attempt+1}/3 failed for {url}: {e}")
+            if attempt < 2:
+                time.sleep(2 ** attempt)  # backoff
+            else:
+                return None
+    return None
 
 def scrape_search():
     try:
         url = "https://www.amazon.com/s?k=pokemon+cards&i=toys-and-games"
         html = _scrape_with_api(url)
-        if not html:
-            return []
+        if not html: return []
         soup = BeautifulSoup(html, 'html.parser')
         products = []
         items = soup.select('[data-asin]')[:15] or soup.select('.s-result-item')
@@ -133,7 +137,7 @@ def get_product_status(url):
         print(f"get_product_status error for {url}: {e}")
         return {'title': "Error", 'availability': "Error", 'price': "N/A"}
 
-# ====================== TASKS (fully protected) ======================
+# ====================== TASKS ======================
 @bot.event
 async def on_ready():
     print(f'✅ {bot.user} is ready and hunting Pokémon cards on Amazon!')
@@ -213,7 +217,7 @@ async def monitor(ctx, url: str):
         asin = asin_match.group(1)
         status = get_product_status(url)
         if status['title'] == "Error":
-            await ctx.send("❌ Couldn't reach that product. Check the URL or make sure SCRAPE_DO_TOKEN is set in Render.")
+            await ctx.send("❌ Couldn't reach that product right now. Try again in a minute.")
             return
         monitored = load_monitored()
         monitored[asin] = {'url': url, 'last_available': status['availability'] == "In Stock", 'title': status['title'], 'price': status['price']}
